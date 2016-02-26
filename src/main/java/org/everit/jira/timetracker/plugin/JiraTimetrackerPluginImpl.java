@@ -41,9 +41,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.apache.log4j.Logger;
+import org.everit.jira.querydsl.model.QJiraissue;
+import org.everit.jira.querydsl.model.QProject;
+import org.everit.jira.querydsl.model.QWorklog;
 import org.everit.jira.timetracker.plugin.dto.ActionResult;
 import org.everit.jira.timetracker.plugin.dto.ActionResultStatus;
 import org.everit.jira.timetracker.plugin.dto.CalendarSettingsValues;
+import org.everit.jira.timetracker.plugin.dto.ChartData;
 import org.everit.jira.timetracker.plugin.dto.EveritWorklog;
 import org.everit.jira.timetracker.plugin.dto.EveritWorklogComparator;
 import org.everit.jira.timetracker.plugin.dto.PluginSettingsValues;
@@ -76,8 +80,17 @@ import com.atlassian.jira.security.Permissions;
 import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.mail.queue.SingleMailQueueItem;
 import com.atlassian.plugin.util.ClassLoaderUtils;
+import com.atlassian.pocketknife.api.querydsl.ConnectionProvider;
+import com.atlassian.pocketknife.api.querydsl.DialectProvider;
+import com.atlassian.pocketknife.api.querydsl.QueryFactory;
+import com.atlassian.pocketknife.internal.querydsl.JiraConnectionProviderImpl;
+import com.atlassian.pocketknife.internal.querydsl.QueryFactoryImpl;
+import com.atlassian.pocketknife.spi.querydsl.DefaultDialectConfiguration;
 import com.atlassian.sal.api.pluginsettings.PluginSettings;
 import com.atlassian.sal.api.pluginsettings.PluginSettingsFactory;
+import com.google.common.base.Function;
+import com.mysema.query.sql.SQLQuery;
+import com.mysema.query.types.ConstructorExpression;
 
 /**
  * The implementation of the {@link JiraTimetrackerPlugin}.
@@ -272,10 +285,18 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
   private final PluginSettingsFactory settingsFactory;
 
   /**
+   * Querydsl query factory.
+   */
+  private QueryFactory queryFactory;
+
+  /**
    * Default constructor.
    */
   public JiraTimetrackerPluginImpl(final PluginSettingsFactory settingFactory) {
     settingsFactory = settingFactory;
+    ConnectionProvider connectionProvider = new JiraConnectionProviderImpl();
+    DialectProvider dialectProvider = new DefaultDialectConfiguration(connectionProvider);
+    queryFactory = new QueryFactoryImpl(connectionProvider, dialectProvider);
   }
 
   @Override
@@ -711,6 +732,64 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
       }
     }
     return startTimeChange;
+  }
+
+  @Override
+  public List<ChartData> getTimeWorkedByProject(final String selectedUser, final Date startDate,
+      final Date endDate) {
+
+    Calendar startCalendar = DateTimeConverterUtil.setDateToDayStart(startDate);
+    Calendar endCalendarDate = (Calendar) startCalendar.clone();
+    if (endDate == null) {
+      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
+    } else {
+      endCalendarDate = DateTimeConverterUtil.setDateToDayStart(endDate);
+      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
+    }
+    final Timestamp startTimastamp = new Timestamp(startCalendar.getTimeInMillis());
+    final Timestamp endTimestamp = new Timestamp(endCalendarDate.getTimeInMillis());
+
+    final String userKey;
+    if ((selectedUser == null) || "".equals(selectedUser)) {
+      JiraAuthenticationContext authenticationContext = ComponentAccessor
+          .getJiraAuthenticationContext();
+      ApplicationUser loggedInUser = authenticationContext.getUser();
+      userKey = loggedInUser.getKey();
+    } else {
+      userKey = selectedUser;
+    }
+
+    LOGGER.warn(
+        String.format("Filter: start=%s, end=%s, key=%s", startTimastamp, endTimestamp, userKey));
+
+    return queryFactory.fetch(new Function<SQLQuery, List<ChartData>>() {
+      @Override
+      public List<ChartData> apply(final SQLQuery query) {
+
+        QWorklog worklog = new QWorklog("w");
+        QJiraissue issue = new QJiraissue("i");
+        QProject project = new QProject("p");
+
+        SQLQuery beforeListing = query.from(worklog)
+            .join(issue).on(worklog.issueid.eq(issue.id))
+            .join(project).on(issue.project.eq(project.id))
+            .where(worklog.startdate.after(startTimastamp)
+                .and(worklog.startdate.before(endTimestamp))
+                .and(worklog.author.like(userKey)))
+            .groupBy(project.pkey);
+
+        ConstructorExpression<ChartData> listingExpr = ConstructorExpression.create(
+            ChartData.class,
+            project.pkey,
+            worklog.timeworked.sum());
+
+        LOGGER.warn(beforeListing.getSQL(listingExpr).getSQL());
+
+        List<ChartData> result = beforeListing.list(listingExpr);
+
+        return result;
+      }
+    });
   }
 
   @Override

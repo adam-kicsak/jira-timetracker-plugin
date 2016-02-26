@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.everit.jira.timetracker.plugin.dto.ActionResult;
+import org.everit.jira.timetracker.plugin.dto.ChartData;
 import org.everit.jira.timetracker.plugin.dto.EveritWorklog;
 import org.everit.jira.timetracker.plugin.dto.PluginSettingsValues;
 import org.ofbiz.core.entity.GenericEntityException;
@@ -169,6 +170,20 @@ public interface JiraTimetrackerPlugin {
    *           GenericEntityException.
    */
   List<String> getProjectsId() throws GenericEntityException;
+
+  /**
+   * Give back the days all worklog of the selectedUser. If selectedUser null or empty the actual
+   * logged in user will used.
+   *
+   * @param startDate
+   *          The start date of the report.
+   * @param endDate
+   *          The end date of the report.
+   * @param selectedUser
+   *          The selected User.
+   * @return The list of the chart data entries.
+   */
+  List<ChartData> getTimeWorkedByProject(String selectedUser, Date startDate, Date endDate);
 
   /**
    * Give back the Worklog by ID.

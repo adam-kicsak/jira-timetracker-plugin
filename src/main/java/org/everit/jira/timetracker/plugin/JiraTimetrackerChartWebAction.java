@@ -15,26 +15,18 @@
  */
 package org.everit.jira.timetracker.plugin;
 
-import java.sql.SQLException;
 import java.text.ParseException;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 
-import org.apache.log4j.Logger;
 import org.everit.jira.timetracker.plugin.dto.ChartData;
-import org.everit.jira.timetracker.plugin.dto.EveritWorklog;
 import org.everit.jira.timetracker.plugin.dto.PluginSettingsValues;
 import org.ofbiz.core.entity.GenericEntityException;
 
 import com.atlassian.jira.avatar.Avatar;
 import com.atlassian.jira.avatar.AvatarService;
 import com.atlassian.jira.component.ComponentAccessor;
-import com.atlassian.jira.exception.DataAccessException;
 import com.atlassian.jira.security.JiraAuthenticationContext;
 import com.atlassian.jira.user.ApplicationUser;
 import com.atlassian.jira.web.action.JiraWebActionSupport;
@@ -44,8 +36,6 @@ import com.atlassian.jira.web.action.JiraWebActionSupport;
  */
 public class JiraTimetrackerChartWebAction extends JiraWebActionSupport {
 
-  private static final String GET_WORKLOGS_ERROR_MESSAGE = "Error when trying to get worklogs.";
-
   private static final String INVALID_END_TIME = "plugin.invalid_endTime";
 
   private static final String INVALID_START_TIME = "plugin.invalid_startTime";
@@ -53,10 +43,6 @@ public class JiraTimetrackerChartWebAction extends JiraWebActionSupport {
   private static final String INVALID_USER_PICKER = "plugin.user.picker.label";
 
   private static final String JIRA_HOME_URL = "/secure/Dashboard.jspa";
-  /**
-   * Logger.
-   */
-  private static final Logger LOGGER = Logger.getLogger(JiraTimetrackerChartWebAction.class);
 
   private static final String NOT_RATED = "Not rated";
 
@@ -226,33 +212,9 @@ public class JiraTimetrackerChartWebAction extends JiraWebActionSupport {
       return INPUT;
     }
 
-    List<EveritWorklog> worklogs = new ArrayList<EveritWorklog>();
-    try {
-      worklogs.addAll(jiraTimetrackerPlugin.getWorklogs(currentUser, startDate.getTime(),
-          lastDate.getTime()));
-    } catch (DataAccessException e) {
-      LOGGER.error(GET_WORKLOGS_ERROR_MESSAGE, e);
-      return ERROR;
-    } catch (SQLException e) {
-      LOGGER.error(GET_WORKLOGS_ERROR_MESSAGE, e);
-      return ERROR;
-    }
+    chartDataList = jiraTimetrackerPlugin.getTimeWorkedByProject(
+        currentUser, startDate.getTime(), lastDate.getTime());
 
-    Map<String, Long> map = new HashMap<String, Long>();
-    for (EveritWorklog worklog : worklogs) {
-      String projectName = worklog.getIssue().split("-")[0];
-      Long newValue = worklog.getMilliseconds();
-      Long oldValue = map.get(projectName);
-      if (oldValue == null) {
-        map.put(projectName, newValue);
-      } else {
-        map.put(projectName, oldValue + newValue);
-      }
-    }
-    chartDataList = new ArrayList<ChartData>();
-    for (Entry<String, Long> entry : map.entrySet()) {
-      chartDataList.add(new ChartData(entry.getKey(), entry.getValue()));
-    }
     return SUCCESS;
   }
 
@@ -415,8 +377,8 @@ public class JiraTimetrackerChartWebAction extends JiraWebActionSupport {
       throw new IllegalArgumentException(INVALID_USER_PICKER);
     }
     if ("".equals(currentUser)) {
-      JiraAuthenticationContext authenticationContext =
-          ComponentAccessor.getJiraAuthenticationContext();
+      JiraAuthenticationContext authenticationContext = ComponentAccessor
+          .getJiraAuthenticationContext();
       currentUser = authenticationContext.getUser().getKey();
     }
   }
@@ -462,8 +424,8 @@ public class JiraTimetrackerChartWebAction extends JiraWebActionSupport {
     baseUrl = JiraTimetrackerAnalytics.setUserSessionBaseUrl(getHttpRequest().getSession());
     userId = JiraTimetrackerAnalytics.setUserSessionUserId(getHttpRequest().getSession());
 
-    piwikHost =
-        jiraTimetrackerPlugin.getPiwikPorperty(JiraTimetrackerPiwikPropertiesUtil.PIWIK_HOST);
+    piwikHost = jiraTimetrackerPlugin
+        .getPiwikPorperty(JiraTimetrackerPiwikPropertiesUtil.PIWIK_HOST);
     piwikSiteId = jiraTimetrackerPlugin
         .getPiwikPorperty(JiraTimetrackerPiwikPropertiesUtil.PIWIK_CHART_SITEID);
   }

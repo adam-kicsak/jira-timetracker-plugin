@@ -34,8 +34,8 @@
   <packaging>bundle</packaging>
 
   <properties>
-    <jira.version>6.2.5</jira.version>
-    <jira.data.version>6.2.5</jira.data.version>
+    <jira.version>6.4.1</jira.version>
+    <jira.data.version>6.4.1</jira.data.version>
     <projectpath>jira-timetracker-plugin</projectpath>
     <maven.compiler.source>1.7</maven.compiler.source>
     <maven.compiler.target>1.7</maven.compiler.target>
@@ -72,11 +72,67 @@
           <instructions>
             <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
             <Import-Package>
-              *
+              com.atlassian.crowd.embedded.api,
+              com.atlassian.fugue;version="[2.2,3)",
+              com.atlassian.jira.avatar,
+              com.atlassian.jira.bc,
+              com.atlassian.jira.bc.issue.worklog,
+              com.atlassian.jira.component,
+              com.atlassian.jira.config.properties,
+              com.atlassian.jira.exception,
+              com.atlassian.jira.issue,
+              com.atlassian.jira.issue.status,
+              com.atlassian.jira.issue.worklog,
+              com.atlassian.jira.mail,
+              com.atlassian.jira.model.querydsl,
+              com.atlassian.jira.ofbiz,
+              com.atlassian.jira.project,
+              com.atlassian.jira.security,
+              com.atlassian.jira.user,
+              com.atlassian.jira.user.util,
+              com.atlassian.jira.util,
+              com.atlassian.jira.web.action,
+              com.atlassian.mail,
+              com.atlassian.mail.queue,
+              com.atlassian.mail.server,
+              com.atlassian.plugin,
+              com.atlassian.plugin.util,
+              com.atlassian.sal.api.pluginsettings;version="[2.11,3)",
+              com.atlassian.util.concurrent;version="[2.6,3)",
+              com.google.common.base,
+              com.google.common.cache,
+              com.google.common.collect,
+              com.google.common.primitives,
+              com.vividsolutions.jts.io;resolution:=optional,
+              javax.annotation,
+              javax.servlet.http,
+              javax.sql,
+              net.sf.cglib.proxy;resolution:=optional,
+              oracle.spatial.geometry;resolution:=optional,
+              oracle.sql;resolution:=optional,
+              org.apache.commons.lang;version="[2.6,3)",
+              org.apache.commons.lang.time;version="[2.6,3)",
+              org.apache.log4j,
+              org.geolatte.geom;resolution:=optional,
+              org.geolatte.geom.codec;resolution:=optional,
+              org.geolatte.geom.crs;resolution:=optional,
+              org.joda.time;version="[2.7,3)",
+              org.joda.time.format;version="[2.7,3)",
+              org.jvnet.hudson.annotation_indexer;resolution:=optional,
+              org.ofbiz.core.entity,
+              org.postgis;resolution:=optional,
+              org.slf4j;version="[1.7,2)",
+              org.springframework.beans.factory;version="[2.5,3)",
+              org.springframework.beans.factory.annotation;version="[2.5,3)",
+              org.springframework.stereotype;version="[2.5,3)"
             </Import-Package>
             <Export-Package />
             <_failok>true</_failok>
-            <Embed-Dependency>sal-api</Embed-Dependency>
+            <Spring-Context>*</Spring-Context>
+            <Embed-Dependency>
+              *;scope=compile
+            </Embed-Dependency>
+            <Embed-Transitive>true</Embed-Transitive>
           </instructions>
           <log4jProperties>src/main/resources/log4j.properties</log4jProperties>
         </configuration>
@@ -101,58 +157,34 @@
       </resource>
     </resources>
   </build>
+  
+<!--   <dependencyManagement> -->
+<!--     <dependencies> -->
+<!--       <dependency> -->
+<!--         <groupId>com.mysema.querydsl</groupId> -->
+<!--         <artifactId>querydsl-sql</artifactId> -->
+<!--         <version>3.4.2</version> -->
+<!--         <scope>provided</scope> -->
+<!--       </dependency> -->
+<!--     </dependencies> -->
+<!--   </dependencyManagement> -->
 
   <dependencies>
+
     <dependency>
-      <groupId>log4j</groupId>
-      <artifactId>log4j</artifactId>
-      <version>1.2.15</version>
-      <exclusions>
-        <exclusion>
-          <artifactId>jmxri</artifactId>
-          <groupId>com.sun.jmx</groupId>
-        </exclusion>
-        <exclusion>
-          <artifactId>jmxtools</artifactId>
-          <groupId>com.sun.jdmk</groupId>
-        </exclusion>
-        <exclusion>
-          <artifactId>jms</artifactId>
-          <groupId>javax.jms</groupId>
-        </exclusion>
-      </exclusions>
+      <groupId>com.atlassian.pocketknife</groupId>
+      <artifactId>atlassian-pocketknife-querydsl</artifactId>
+      <version>0.39</version>
     </dependency>
-    <dependency>
-      <groupId>javax.servlet</groupId>
-      <artifactId>servlet-api</artifactId>
-      <version>2.5</version>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-beans</artifactId>
-      <version>4.0.0.RELEASE</version>
-    </dependency>
-    <dependency>
-      <groupId>com.atlassian.sal</groupId>
-      <artifactId>sal-api</artifactId>
-      <version>3.0.0</version>
-    </dependency>
+
     <dependency>
       <groupId>com.atlassian.jira</groupId>
-      <artifactId>jira-api</artifactId>
+      <artifactId>jira-core</artifactId>
       <version>${jira.version}</version>
       <scope>provided</scope>
-       <exclusions>
-        <exclusion>
-          <groupId>jndi</groupId>
-          <artifactId>jndi</artifactId>
-        </exclusion>
-        <exclusion>
-          <artifactId>jta</artifactId>
-          <groupId>jta</groupId>
-        </exclusion>
-      </exclusions>
     </dependency>
+
+
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
@@ -171,22 +203,6 @@
       <version>3.4</version>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>com.atlassian.jira</groupId>
-      <artifactId>jira-core</artifactId>
-      <version>${jira.version}</version>
-      <scope>provided</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>jndi</groupId>
-          <artifactId>jndi</artifactId>
-        </exclusion>
-        <exclusion>
-          <artifactId>jta</artifactId>
-          <groupId>jta</groupId>
-        </exclusion>
-      </exclusions>
-    </dependency>
   </dependencies>
 
   <repositories>
@@ -204,5 +220,21 @@
       </releases>
     </repository>
   </repositories>
+
+  <pluginRepositories>
+    <pluginRepository>
+      <id>atlassian-public</id>
+      <url>https://maven.atlassian.com/repository/public</url>
+      <snapshots>
+        <enabled>true</enabled>
+        <updatePolicy>never</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </snapshots>
+      <releases>
+        <enabled>true</enabled>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+    </pluginRepository>
+  </pluginRepositories>
 
 </project>

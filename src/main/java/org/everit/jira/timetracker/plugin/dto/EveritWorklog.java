@@ -155,13 +155,32 @@ public class EveritWorklog implements Serializable {
       body = "";
     }
     long timeSpentInSec = worklogGv.getLong("timeworked").longValue();
-    milliseconds = timeSpentInSec
-        * DateTimeConverterUtil.MILLISECONDS_PER_SECOND;
-    duration = DateTimeConverterUtil.secondConvertToString(timeSpentInSec);
-    endTime = DateTimeConverterUtil.countEndTime(startTime, milliseconds);
+    updateWorklogTimeFields(timeSpentInSec);
 
     roundedRemaining = DurationFormatter.roundedDuration(issueObject.getEstimate());
     exactRemaining = DateTimeConverterUtil.secondConvertToString(issueObject.getEstimate());
+  }
+
+  public EveritWorklog(final Long worklogId, final String worklogBody, final Date worklogDate,
+      final Long worklogTimeworked, final String issue,
+      final Long issueId, final String issueSummary, final Long issueEstimate,
+      final String issueParent)
+          throws ParseException {
+
+    // worklog
+    this.worklogId = worklogId;
+    this.body = correctBody(worklogBody);
+    updateWorklogDateFields(worklogDate);
+    updateWorklogTimeFields(worklogTimeworked.longValue());
+
+    // issue
+    this.issueId = issueId;
+    this.issue = issue;
+    this.issueSummary = issueSummary;
+    updateIssueEstimateFields(issueEstimate);
+
+    // issue parent
+    this.issueParent = issueParent;
   }
 
   /**
@@ -207,10 +226,7 @@ public class EveritWorklog implements Serializable {
       body = "";
     }
     long timeSpentInSec = rs.getLong("timeworked");
-    milliseconds = timeSpentInSec
-        * DateTimeConverterUtil.MILLISECONDS_PER_SECOND;
-    duration = DateTimeConverterUtil.secondConvertToString(timeSpentInSec);
-    endTime = DateTimeConverterUtil.countEndTime(startTime, milliseconds);
+    updateWorklogTimeFields(timeSpentInSec);
 
     roundedRemaining = DurationFormatter.roundedDuration(issueObject.getEstimate());
     exactRemaining = DateTimeConverterUtil.secondConvertToString(issueObject.getEstimate());
@@ -250,6 +266,20 @@ public class EveritWorklog implements Serializable {
     duration = DateTimeConverterUtil
         .millisecondConvertToStringTime(milliseconds);
     endTime = DateTimeConverterUtil.countEndTime(startTime, milliseconds);
+  }
+
+  private void updateIssueEstimateFields(final Long issueEstimate) {
+    isMoreEstimatedTime = issueEstimate == 0 ? false : true;
+    roundedRemaining = DurationFormatter.roundedDuration(issueEstimate);
+    exactRemaining = DateTimeConverterUtil.secondConvertToString(issueEstimate);
+  }
+
+  private String correctBody(final String body) {
+    if (body != null) {
+      return body.replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n");
+    } else {
+      return "";
+    }
   }
 
   public String getBody() {
@@ -386,6 +416,24 @@ public class EveritWorklog implements Serializable {
 
   public void setWorklogId(final Long worklogId) {
     this.worklogId = worklogId;
+  }
+
+  private void updateWorklogDateFields(final Date worklogDate) {
+    date = worklogDate;
+    startTime = DateTimeConverterUtil.dateTimeToString(date);
+    startDate = DateTimeConverterUtil.dateToString(date);
+    Calendar calendar = Calendar.getInstance();
+    calendar.setTime(date);
+    weekNo = calendar.get(Calendar.WEEK_OF_YEAR);
+    monthNo = calendar.get(Calendar.MONTH) + 1;
+    dayNo = calendar.get(Calendar.DAY_OF_YEAR);
+  }
+
+  private void updateWorklogTimeFields(final long timeSpentInSec) throws ParseException {
+    milliseconds = timeSpentInSec
+        * DateTimeConverterUtil.MILLISECONDS_PER_SECOND;
+    duration = DateTimeConverterUtil.secondConvertToString(timeSpentInSec);
+    endTime = DateTimeConverterUtil.countEndTime(startTime, milliseconds);
   }
 
 }
