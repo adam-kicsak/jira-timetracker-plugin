@@ -20,7 +20,6 @@ import java.sql.SQLException;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
@@ -329,16 +328,15 @@ public class JiraTimetrackerTableWebAction extends JiraWebActionSupport {
       return INPUT;
     }
 
-    worklogs = new ArrayList<EveritWorklog>();
     try {
-      worklogs.addAll(jiraTimetrackerPlugin.getWorklogs(currentUser, startDate.getTime(),
-          lastDate.getTime()));
+      worklogs = jiraTimetrackerPlugin.getWorklogs(currentUser, startDate.getTime(),
+          lastDate.getTime());
     } catch (DataAccessException | SQLException e) {
       LOGGER.error(GET_WORKLOGS_ERROR_MESSAGE, e);
       return ERROR;
     }
 
-    Collections.sort(worklogs, new OrderByDate());
+    //Collections.sort(worklogs, new OrderByDate());
 
     for (EveritWorklog worklog : worklogs) {
       Calendar calendar = Calendar.getInstance();

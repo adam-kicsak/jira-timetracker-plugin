@@ -41,6 +41,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.apache.log4j.Logger;
+import org.everit.jira.querydsl.model.QIssuelink;
+import org.everit.jira.querydsl.model.QIssuelinktype;
 import org.everit.jira.querydsl.model.QJiraissue;
 import org.everit.jira.querydsl.model.QProject;
 import org.everit.jira.querydsl.model.QWorklog;
@@ -49,7 +51,6 @@ import org.everit.jira.timetracker.plugin.dto.ActionResultStatus;
 import org.everit.jira.timetracker.plugin.dto.CalendarSettingsValues;
 import org.everit.jira.timetracker.plugin.dto.ChartData;
 import org.everit.jira.timetracker.plugin.dto.EveritWorklog;
-import org.everit.jira.timetracker.plugin.dto.EveritWorklogComparator;
 import org.everit.jira.timetracker.plugin.dto.PluginSettingsValues;
 import org.ofbiz.core.entity.EntityCondition;
 import org.ofbiz.core.entity.EntityExpr;
@@ -90,7 +91,14 @@ import com.atlassian.sal.api.pluginsettings.PluginSettings;
 import com.atlassian.sal.api.pluginsettings.PluginSettingsFactory;
 import com.google.common.base.Function;
 import com.mysema.query.sql.SQLQuery;
+import com.mysema.query.sql.SQLSubQuery;
 import com.mysema.query.types.ConstructorExpression;
+import com.mysema.query.types.Order;
+import com.mysema.query.types.OrderSpecifier;
+import com.mysema.query.types.SubQueryExpression;
+import com.mysema.query.types.expr.BooleanExpression;
+import com.mysema.query.types.expr.CaseBuilder;
+import com.mysema.query.types.expr.StringExpression;
 
 /**
  * The implementation of the {@link JiraTimetrackerPlugin}.
@@ -336,24 +344,40 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
     return initialDelay;
   }
 
-  private List<Long> createProjects(final ApplicationUser loggedInUser) {
-    Collection<Project> projects = ComponentAccessor.getPermissionManager()
-        .getProjects(Permissions.BROWSE, loggedInUser);
-
-    List<Long> projectList = new ArrayList<Long>();
-    for (Project project : projects) {
-      projectList.add(project.getId());
+  private Timestamp correctEndDate(final Date startDate, final Date endDate) {
+    Calendar endCalendarDate;
+    if (endDate == null) {
+      endCalendarDate = DateTimeConverterUtil.setDateToDayStart(startDate);
+      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
+    } else {
+      endCalendarDate = DateTimeConverterUtil.setDateToDayStart(endDate);
+      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
     }
-    return projectList;
+    final Timestamp endTimestamp = new Timestamp(endCalendarDate.getTimeInMillis());
+    return endTimestamp;
+  }
+
+  private Timestamp correctStartDate(final Date startDate) {
+    Calendar startCalendar = DateTimeConverterUtil.setDateToDayStart(startDate);
+    final Timestamp startTimastamp = new Timestamp(startCalendar.getTimeInMillis());
+    return startTimastamp;
+  }
+
+  private String correctUserKey(final String selectedUser, ApplicationUser loggedInUser) {
+    final String userKey;
+    if ((selectedUser == null) || "".equals(selectedUser)) {
+      userKey = loggedInUser.getKey();
+    } else {
+      userKey = selectedUser;
+    }
+    return userKey;
   }
 
   @Override
   public ActionResult createWorklog(final String issueId,
       final String comment, final String dateFormatted,
       final String startTime, final String timeSpent) {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
     LOGGER.warn("JTTP createWorklog: user: " + user.getDisplayName() + " "
         + user.getName() + " " + user.getEmailAddress());
     JiraServiceContext serviceContext = new JiraServiceContextImpl(user);
@@ -402,6 +426,16 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
         "plugin.worklog.create.success");
   }
 
+  private BooleanExpression createWorklogFilter(final QWorklog worklog, final QProject project,
+      final Timestamp startTimastamp, final Timestamp endTimestamp, final String userKey,
+      final List<Long> projectIds) {
+    BooleanExpression filter = worklog.author.eq(userKey)
+        .and(worklog.startdate.after(startTimastamp))
+        .and(worklog.startdate.before(endTimestamp))
+        .and(project.id.in(projectIds));
+    return filter;
+  }
+
   private List<EntityCondition> createWorklogQueryExprList(final ApplicationUser user,
       final Calendar startDate, final Calendar endDate) {
 
@@ -432,7 +466,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
     String userKey = ((selectedUser == null) || "".equals(selectedUser))
         ? loggedInUser.getKey() : selectedUser;
 
-    List<Long> projects = createProjects(loggedInUser);
+    List<Long> projects = getProjectIdsByUserHasBrowserPerm(loggedInUser);
 
     EntityExpr startExpr = new EntityExpr("startdate",
         EntityOperator.GREATER_THAN_EQUAL_TO, new Timestamp(
@@ -455,9 +489,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
 
   @Override
   public ActionResult deleteWorklog(final Long id) {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
     JiraServiceContext serviceContext = new JiraServiceContextImpl(user);
     WorklogService worklogService = ComponentAccessor.getComponent(WorklogService.class);
     WorklogResult deleteWorklogResult = worklogService.validateDelete(
@@ -483,9 +515,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
   public ActionResult editWorklog(final Long id, final String issueId,
       final String comment, final String dateFormatted, final String time,
       final String timeSpent) {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
     JiraServiceContext serviceContext = new JiraServiceContextImpl(user);
 
     WorklogManager worklogManager = ComponentAccessor.getWorklogManager();
@@ -702,9 +732,27 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
     return resultDays;
   }
 
+  private ApplicationUser getLoggedInUser() {
+    JiraAuthenticationContext authenticationContext = ComponentAccessor
+        .getJiraAuthenticationContext();
+    ApplicationUser loggedInUser = authenticationContext.getUser();
+    return loggedInUser;
+  }
+
   @Override
   public String getPiwikPorperty(final String key) {
     return piwikPorpeties.get(key);
+  }
+
+  private List<Long> getProjectIdsByUserHasBrowserPerm(final ApplicationUser user) {
+    Collection<Project> projects = ComponentAccessor.getPermissionManager()
+        .getProjects(Permissions.BROWSE, user);
+
+    List<Long> projectList = new ArrayList<Long>();
+    for (Project project : projects) {
+      projectList.add(project.getId());
+    }
+    return projectList;
   }
 
   @Override
@@ -738,29 +786,12 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
   public List<ChartData> getTimeWorkedByProject(final String selectedUser, final Date startDate,
       final Date endDate) {
 
-    Calendar startCalendar = DateTimeConverterUtil.setDateToDayStart(startDate);
-    Calendar endCalendarDate = (Calendar) startCalendar.clone();
-    if (endDate == null) {
-      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
-    } else {
-      endCalendarDate = DateTimeConverterUtil.setDateToDayStart(endDate);
-      endCalendarDate.add(Calendar.DAY_OF_MONTH, 1);
-    }
-    final Timestamp startTimastamp = new Timestamp(startCalendar.getTimeInMillis());
-    final Timestamp endTimestamp = new Timestamp(endCalendarDate.getTimeInMillis());
+    ApplicationUser loggedInUser = getLoggedInUser();
 
-    final String userKey;
-    if ((selectedUser == null) || "".equals(selectedUser)) {
-      JiraAuthenticationContext authenticationContext = ComponentAccessor
-          .getJiraAuthenticationContext();
-      ApplicationUser loggedInUser = authenticationContext.getUser();
-      userKey = loggedInUser.getKey();
-    } else {
-      userKey = selectedUser;
-    }
-
-    LOGGER.warn(
-        String.format("Filter: start=%s, end=%s, key=%s", startTimastamp, endTimestamp, userKey));
+    final Timestamp startTimastamp = correctStartDate(startDate);
+    final Timestamp endTimestamp = correctEndDate(startDate, endDate);
+    final String userKey = correctUserKey(selectedUser, loggedInUser);
+    final List<Long> projectIds = getProjectIdsByUserHasBrowserPerm(loggedInUser);
 
     return queryFactory.fetch(new Function<SQLQuery, List<ChartData>>() {
       @Override
@@ -770,25 +801,25 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
         QJiraissue issue = new QJiraissue("i");
         QProject project = new QProject("p");
 
-        SQLQuery beforeListing = query.from(worklog)
-            .join(issue).on(worklog.issueid.eq(issue.id))
-            .join(project).on(issue.project.eq(project.id))
-            .where(worklog.startdate.after(startTimastamp)
-                .and(worklog.startdate.before(endTimestamp))
-                .and(worklog.author.like(userKey)))
-            .groupBy(project.pkey);
+        BooleanExpression filter = createWorklogFilter(worklog, project, startTimastamp,
+            endTimestamp, userKey, projectIds);
 
-        ConstructorExpression<ChartData> listingExpr = ConstructorExpression.create(
+        ConstructorExpression<ChartData> listing = ConstructorExpression.create(
             ChartData.class,
             project.pkey,
             worklog.timeworked.sum());
 
-        LOGGER.warn(beforeListing.getSQL(listingExpr).getSQL());
-
-        List<ChartData> result = beforeListing.list(listingExpr);
+        List<ChartData> result = query
+            .from(worklog)
+            .join(issue).on(worklog.issueid.eq(issue.id))
+            .join(project).on(issue.project.eq(project.id))
+            .where(filter)
+            .groupBy(project.pkey)
+            .list(listing);
 
         return result;
       }
+
     });
   }
 
@@ -801,46 +832,87 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
 
   @Override
   public List<EveritWorklog> getWorklogs(final String selectedUser, final Date date,
-      final Date finalDate)
-          throws ParseException, GenericEntityException {
-    Calendar startDate = DateTimeConverterUtil.setDateToDayStart(date);
-    Calendar endDate = (Calendar) startDate.clone();
-    if (finalDate == null) {
-      endDate.add(Calendar.DAY_OF_MONTH, 1);
-    } else {
-      endDate = DateTimeConverterUtil.setDateToDayStart(finalDate);
-      endDate.add(Calendar.DAY_OF_MONTH, 1);
+      final Date finalDate) throws ParseException, GenericEntityException {
+
+    ApplicationUser loggedInUser = getLoggedInUser();
+
+    final Timestamp startTimastamp = correctStartDate(date);
+    final Timestamp endTimestamp = correctEndDate(date, finalDate);
+    final String userKey = correctUserKey(selectedUser, loggedInUser);
+    final List<Long> projectIds = getProjectIdsByUserHasBrowserPerm(loggedInUser);
+
+    List<EveritWorklog> result;
+    try {
+      result = queryFactory.fetch(new Function<SQLQuery, List<EveritWorklog>>() {
+
+        @Override
+        public List<EveritWorklog> apply(final SQLQuery query) {
+
+          QWorklog worklog = new QWorklog("worklog");
+          QJiraissue issue = new QJiraissue("issue");
+          QProject project = new QProject("project");
+          QIssuelink subtaskLink = new QIssuelink("p_link");
+          QJiraissue parentIssue = new QJiraissue("p_issue");
+          QProject parentProject = new QProject("p_project");
+
+          BooleanExpression filter = createWorklogFilter(worklog, project, startTimastamp,
+              endTimestamp, userKey, projectIds);
+
+          StringExpression parentIssueKey = new CaseBuilder()
+              .when(parentProject.pkey.isNull()).then("")
+              .otherwise(parentProject.pkey.concat("-").concat(parentIssue.issuenum.stringValue()));
+
+          ConstructorExpression<EveritWorklog> listing = ConstructorExpression.create(
+              EveritWorklog.class,
+              worklog.id,
+              worklog.worklogbody,
+              worklog.startdate,
+              worklog.timeworked,
+              project.pkey.concat("-").concat(issue.issuenum.stringValue()),
+              issue.id,
+              issue.summary,
+              issue.timeestimate,
+              parentIssueKey);
+
+          SubQueryExpression<?> subtaskIssueLink = createSubtaskIssueLinkSubquery();
+
+          List<EveritWorklog> result = query
+              .from(worklog)
+              .join(issue).on(worklog.issueid.eq(issue.id))
+              .join(project).on(issue.project.eq(project.id))
+              .leftJoin(subtaskIssueLink, subtaskLink).on(subtaskLink.destination.eq(issue.id))
+              .leftJoin(parentIssue).on(subtaskLink.source.eq(parentIssue.id))
+              .leftJoin(parentProject).on(parentIssue.project.eq(parentProject.id))
+              .where(filter)
+              .orderBy(
+                  new OrderSpecifier<Timestamp>(Order.ASC, worklog.startdate),
+                  new OrderSpecifier<Long>(Order.ASC, worklog.timeworked))
+              .list(listing);
+
+          return result;
+        }
+
+        private SubQueryExpression<?> createSubtaskIssueLinkSubquery() {
+
+          QIssuelink issueLink = new QIssuelink("st_link");
+          QIssuelinktype issueLinkType = new QIssuelinktype("st_linktype");
+
+          SubQueryExpression<?> subTaskLink = new SQLSubQuery()
+              .from(issueLink)
+              .join(issueLinkType).on(issueLink.linktype.eq(issueLinkType.id))
+              .where(issueLinkType.linkname.eq("jira_subtask_link"))
+              .unique(issueLink.all());
+
+          return subTaskLink;
+        }
+
+      });
+      return result;
+    } catch (Exception e) {
+      LOGGER.error("Valami", e);
+      throw e;
     }
 
-    List<EveritWorklog> worklogs = new ArrayList<EveritWorklog>();
-
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser loggedInUser = authenticationContext.getUser();
-
-    String userKey;
-    if ((selectedUser == null) || "".equals(selectedUser)) {
-      userKey = loggedInUser.getKey();
-    } else {
-      userKey = selectedUser;
-    }
-
-    List<EntityCondition> exprList = createWorklogQueryExprListWithPermissionCheck(userKey,
-        loggedInUser, startDate, endDate);
-
-    List<GenericValue> worklogGVList = ComponentAccessor.getOfBizDelegator()
-        .findByAnd("IssueWorklogView", exprList);
-    LOGGER.warn("JTTP LOG: getWorklogs worklog GV list size: " + worklogGVList.size());
-
-    for (GenericValue worklogGv : worklogGVList) {
-      EveritWorklog worklog = new EveritWorklog(worklogGv);
-      worklogs.add(worklog);
-    }
-
-    Collections.sort(worklogs, EveritWorklogComparator.INSTANCE);
-    LOGGER.warn("JTTP LOG: getWorklogs worklog GV list size: "
-        + worklogs.size());
-    return worklogs;
   }
 
   /**
@@ -857,9 +929,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
    */
   private boolean isContainsEnoughWorklog(final Date date,
       final boolean checkNonWorking) throws GenericEntityException {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
 
     Calendar startDate = DateTimeConverterUtil.setDateToDayStart(date);
     Calendar endDate = (Calendar) startDate.clone();
@@ -896,9 +966,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
    */
   private boolean isContainsWorklog(final Date date)
       throws GenericEntityException {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
 
     Calendar startDate = DateTimeConverterUtil.setDateToDayStart(date);
     Calendar endDate = (Calendar) startDate.clone();
@@ -970,9 +1038,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
 
   @Override
   public PluginSettingsValues loadPluginSettings() {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
 
     globalSettings = settingsFactory.createGlobalSettings();
     setNonWorkingIssuePatterns();
@@ -1053,9 +1119,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
   @Override
   public void savePluginSettings(
       final PluginSettingsValues pluginSettingsParameters) {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
     pluginSettings = settingsFactory
         .createSettingsForKey(JTTP_PLUGIN_SETTINGS_KEY_PREFIX
             + user.getName());
@@ -1202,9 +1266,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
   public String summary(final String selectedUser, final Date startSummary,
       final Date finishSummary,
       final List<Pattern> issuePatterns) throws GenericEntityException {
-    JiraAuthenticationContext authenticationContext = ComponentAccessor
-        .getJiraAuthenticationContext();
-    ApplicationUser user = authenticationContext.getUser();
+    ApplicationUser user = getLoggedInUser();
 
     Calendar start = Calendar.getInstance();
     start.setTime(startSummary);

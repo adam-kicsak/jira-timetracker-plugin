@@ -36,6 +36,7 @@ import com.atlassian.jira.issue.worklog.Worklog;
  */
 public class EveritWorklog implements Serializable {
 
+
   /**
    * Serial version UID.
    */
@@ -268,12 +269,6 @@ public class EveritWorklog implements Serializable {
     endTime = DateTimeConverterUtil.countEndTime(startTime, milliseconds);
   }
 
-  private void updateIssueEstimateFields(final Long issueEstimate) {
-    isMoreEstimatedTime = issueEstimate == 0 ? false : true;
-    roundedRemaining = DurationFormatter.roundedDuration(issueEstimate);
-    exactRemaining = DateTimeConverterUtil.secondConvertToString(issueEstimate);
-  }
-
   private String correctBody(final String body) {
     if (body != null) {
       return body.replace("\"", "\\\"").replace("\r", "\\r").replace("\n", "\\n");
@@ -416,6 +411,12 @@ public class EveritWorklog implements Serializable {
 
   public void setWorklogId(final Long worklogId) {
     this.worklogId = worklogId;
+  }
+
+  private void updateIssueEstimateFields(final Long issueEstimate) {
+    isMoreEstimatedTime = issueEstimate == 0 ? false : true;
+    roundedRemaining = DurationFormatter.roundedDuration(issueEstimate);
+    exactRemaining = DateTimeConverterUtil.secondConvertToString(issueEstimate);
   }
 
   private void updateWorklogDateFields(final Date worklogDate) {
