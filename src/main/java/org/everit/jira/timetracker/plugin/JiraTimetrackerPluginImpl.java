@@ -93,8 +93,6 @@ import com.google.common.base.Function;
 import com.mysema.query.sql.SQLQuery;
 import com.mysema.query.sql.SQLSubQuery;
 import com.mysema.query.types.ConstructorExpression;
-import com.mysema.query.types.Order;
-import com.mysema.query.types.OrderSpecifier;
 import com.mysema.query.types.SubQueryExpression;
 import com.mysema.query.types.expr.BooleanExpression;
 import com.mysema.query.types.expr.CaseBuilder;
@@ -458,34 +456,34 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
     return exprList;
   }
 
-  private List<EntityCondition> createWorklogQueryExprListWithPermissionCheck(
-      final String selectedUser,
-      final ApplicationUser loggedInUser,
-      final Calendar startDate, final Calendar endDate) throws GenericEntityException {
-
-    String userKey = ((selectedUser == null) || "".equals(selectedUser))
-        ? loggedInUser.getKey() : selectedUser;
-
-    List<Long> projects = getProjectIdsByUserHasBrowserPerm(loggedInUser);
-
-    EntityExpr startExpr = new EntityExpr("startdate",
-        EntityOperator.GREATER_THAN_EQUAL_TO, new Timestamp(
-            startDate.getTimeInMillis()));
-    EntityExpr endExpr = new EntityExpr("startdate",
-        EntityOperator.LESS_THAN, new Timestamp(endDate.getTimeInMillis()));
-    EntityExpr userExpr = new EntityExpr("author", EntityOperator.EQUALS,
-        userKey);
-    EntityExpr projectExpr = new EntityExpr("project", EntityOperator.IN, projects);
-    LOGGER.info("JTTP LOG: getWorklogs start date: " + startDate.toString()
-        + " end date:" + endDate.toString());
-
-    List<EntityCondition> exprList = new ArrayList<EntityCondition>();
-    exprList.add(userExpr);
-    exprList.add(startExpr);
-    exprList.add(endExpr);
-    exprList.add(projectExpr);
-    return exprList;
-  }
+  // private List<EntityCondition> createWorklogQueryExprListWithPermissionCheck(
+  // final String selectedUser,
+  // final ApplicationUser loggedInUser,
+  // final Calendar startDate, final Calendar endDate) throws GenericEntityException {
+  //
+  // String userKey = ((selectedUser == null) || "".equals(selectedUser))
+  // ? loggedInUser.getKey() : selectedUser;
+  //
+  // List<Long> projects = getProjectIdsByUserHasBrowserPerm(loggedInUser);
+  //
+  // EntityExpr startExpr = new EntityExpr("startdate",
+  // EntityOperator.GREATER_THAN_EQUAL_TO, new Timestamp(
+  // startDate.getTimeInMillis()));
+  // EntityExpr endExpr = new EntityExpr("startdate",
+  // EntityOperator.LESS_THAN, new Timestamp(endDate.getTimeInMillis()));
+  // EntityExpr userExpr = new EntityExpr("author", EntityOperator.EQUALS,
+  // userKey);
+  // EntityExpr projectExpr = new EntityExpr("project", EntityOperator.IN, projects);
+  // LOGGER.info("JTTP LOG: getWorklogs start date: " + startDate.toString()
+  // + " end date:" + endDate.toString());
+  //
+  // List<EntityCondition> exprList = new ArrayList<EntityCondition>();
+  // exprList.add(userExpr);
+  // exprList.add(startExpr);
+  // exprList.add(endExpr);
+  // exprList.add(projectExpr);
+  // return exprList;
+  // }
 
   @Override
   public ActionResult deleteWorklog(final Long id) {
@@ -841,78 +839,60 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
     final String userKey = correctUserKey(selectedUser, loggedInUser);
     final List<Long> projectIds = getProjectIdsByUserHasBrowserPerm(loggedInUser);
 
-    List<EveritWorklog> result;
-    try {
-      result = queryFactory.fetch(new Function<SQLQuery, List<EveritWorklog>>() {
+    List<EveritWorklog> result = queryFactory.fetch(new Function<SQLQuery, List<EveritWorklog>>() {
 
-        @Override
-        public List<EveritWorklog> apply(final SQLQuery query) {
+      @Override
+      public List<EveritWorklog> apply(final SQLQuery query) {
 
-          QWorklog worklog = new QWorklog("worklog");
-          QJiraissue issue = new QJiraissue("issue");
-          QProject project = new QProject("project");
-          QIssuelink subtaskLink = new QIssuelink("p_link");
-          QJiraissue parentIssue = new QJiraissue("p_issue");
-          QProject parentProject = new QProject("p_project");
+        QWorklog worklog = new QWorklog("worklog");
+        QJiraissue issue = new QJiraissue("issue");
+        QProject project = new QProject("project");
+        QIssuelink subtaskLink = new QIssuelink("p_link");
+        QJiraissue parentIssue = new QJiraissue("p_issue");
+        QProject parentProject = new QProject("p_project");
 
-          BooleanExpression filter = createWorklogFilter(worklog, project, startTimastamp,
-              endTimestamp, userKey, projectIds);
+        BooleanExpression filter = createWorklogFilter(worklog, project, startTimastamp,
+            endTimestamp, userKey, projectIds);
 
-          StringExpression parentIssueKey = new CaseBuilder()
-              .when(parentProject.pkey.isNull()).then("")
-              .otherwise(parentProject.pkey.concat("-").concat(parentIssue.issuenum.stringValue()));
+        StringExpression parentIssueKey = new CaseBuilder()
+            .when(parentProject.pkey.isNull()).then("")
+            .otherwise(parentProject.pkey.concat("-").concat(parentIssue.issuenum.stringValue()))
+            .as("parent_issue_key");
 
-          ConstructorExpression<EveritWorklog> listing = ConstructorExpression.create(
-              EveritWorklog.class,
-              worklog.id,
-              worklog.worklogbody,
-              worklog.startdate,
-              worklog.timeworked,
-              project.pkey.concat("-").concat(issue.issuenum.stringValue()),
-              issue.id,
-              issue.summary,
-              issue.timeestimate,
-              parentIssueKey);
+        StringExpression issueKey = project.pkey.concat("-").concat(issue.issuenum.stringValue());
 
-          SubQueryExpression<?> subtaskIssueLink = createSubtaskIssueLinkSubquery();
+        ConstructorExpression<EveritWorklog> listing = ConstructorExpression.create(
+            EveritWorklog.class,
+            worklog.id, worklog.worklogbody, worklog.startdate, worklog.timeworked,
+            issueKey, issue.id, issue.summary, issue.timeestimate,
+            parentIssueKey);
 
-          List<EveritWorklog> result = query
-              .from(worklog)
-              .join(issue).on(worklog.issueid.eq(issue.id))
-              .join(project).on(issue.project.eq(project.id))
-              .leftJoin(subtaskIssueLink, subtaskLink).on(subtaskLink.destination.eq(issue.id))
-              .leftJoin(parentIssue).on(subtaskLink.source.eq(parentIssue.id))
-              .leftJoin(parentProject).on(parentIssue.project.eq(parentProject.id))
-              .where(filter)
-              .orderBy(
-                  new OrderSpecifier<Timestamp>(Order.ASC, worklog.startdate),
-                  new OrderSpecifier<Long>(Order.ASC, worklog.timeworked))
-              .list(listing);
+        return query.from(worklog)
+            .join(issue).on(worklog.issueid.eq(issue.id))
+            .join(project).on(issue.project.eq(project.id))
+            .leftJoin(subtaskIssueLink(), subtaskLink).on(subtaskLink.destination.eq(issue.id))
+            .leftJoin(parentIssue).on(subtaskLink.source.eq(parentIssue.id))
+            .leftJoin(parentProject).on(parentIssue.project.eq(parentProject.id))
+            .where(filter)
+            .orderBy(worklog.startdate.asc(), worklog.timeworked.asc())
+            .list(listing);
+      }
 
-          return result;
-        }
+      private SubQueryExpression<?> subtaskIssueLink() {
 
-        private SubQueryExpression<?> createSubtaskIssueLinkSubquery() {
+        QIssuelink issueLink = new QIssuelink("st_link");
+        QIssuelinktype issueLinkType = new QIssuelinktype("st_linktype");
 
-          QIssuelink issueLink = new QIssuelink("st_link");
-          QIssuelinktype issueLinkType = new QIssuelinktype("st_linktype");
+        return new SQLSubQuery()
+            .from(issueLink)
+            .join(issueLinkType).on(issueLink.linktype.eq(issueLinkType.id))
+            .where(issueLinkType.linkname.eq("jira_subtask_link"))
+            .unique(issueLink.all());
+      }
 
-          SubQueryExpression<?> subTaskLink = new SQLSubQuery()
-              .from(issueLink)
-              .join(issueLinkType).on(issueLink.linktype.eq(issueLinkType.id))
-              .where(issueLinkType.linkname.eq("jira_subtask_link"))
-              .unique(issueLink.all());
+    });
 
-          return subTaskLink;
-        }
-
-      });
-      return result;
-    } catch (Exception e) {
-      LOGGER.error("Valami", e);
-      throw e;
-    }
-
+    return result;
   }
 
   /**
