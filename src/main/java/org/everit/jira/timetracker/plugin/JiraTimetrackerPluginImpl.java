@@ -104,6 +104,8 @@ import com.mysema.query.types.expr.StringExpression;
 public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, InitializingBean,
     DisposableBean, Serializable {
 
+  private static final long SEC_IN_MS = 1000L;
+
   private static final String CUSTOMER_EMAIL_PREFIX = "The customer email address is ";
 
   private static final int DATE_LENGTH = 7;
@@ -805,7 +807,7 @@ public class JiraTimetrackerPluginImpl implements JiraTimetrackerPlugin, Initial
         ConstructorExpression<ChartData> listing = ConstructorExpression.create(
             ChartData.class,
             project.pkey,
-            worklog.timeworked.sum());
+            worklog.timeworked.multiply(Long.valueOf(SEC_IN_MS)).sum().as("duration"));
 
         List<ChartData> result = query
             .from(worklog)
